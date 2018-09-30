@@ -4,7 +4,7 @@ set -e
 # Check that all environment variables are set
 if [[ -z "${POSTGRES_HOST}" ]] || [[ -z "${POSTGRES_USER}" ]] || [[ -z "${POSTGRES_PASSWORD}" ]] || \
  [[ -z "${POSTGRES_DATABASE}" ]] || [[ -z "${PROJECT}" ]] || [[ -z "${BUCKET_NAME}" ]] || \
- [[ -z "${CREDENTIAL_PATH}" ]] || [[ -a $CREDENTIAL_PATH ]]; then
+ [[ -z "${CREDENTIAL_PATH}" ]] || [[ ! -a $CREDENTIAL_PATH ]]; then
     if [[ -z "${POSTGRES_HOST}" ]]; then
         echo "POSTGRES_HOST is not set"
     fi
@@ -26,7 +26,7 @@ if [[ -z "${POSTGRES_HOST}" ]] || [[ -z "${POSTGRES_USER}" ]] || [[ -z "${POSTGR
     if [[ -z "${CREDENTIAL_PATH}" ]]; then
         echo "CREDENTIAL_PATH is not set"
     fi
-    if [[ -a $CREDENTIAL_PATH ]]; then
+    if [[ ! -a $CREDENTIAL_PATH ]]; then
         echo "It doesn't looke like there is a file at $CREDENTIAL_PATH"
     fi
 
@@ -36,14 +36,29 @@ fi
 
 # Looks like everything is in order, lets do this
 DT=$(date "+%Y-%m-%d_%H:%M:%S")
+FILE_NAME="/tmp/$DT.dump.sql"
 FILE_URL="gs://$BUCKET_NAME/$DT.dump.sql"
-PGPASS=$POSTGRES_PASSWORD
+export PGPASSWORD=$POSTGRES_PASSWORD
+
+cat > ~/.boto <<-EOT
+[Credentials]
+gs_service_key_file = $CREDENTIAL_PATH
+
+[GSUtil]
+default_project_id = $PROJECT
+EOT
+
+# export BOTO_PATH=~/.boto 
 
 echo $FILE_URL
 
-pg_dump -h $POSTGRES_HOST -U $POSTGRES_USER $DUMP_ARGS $POSTGRES_DATABASE | \
-gsutil -o "Credentials:gs_service_key_file=$CREDENTIAL_PATH" \
-    -o "default_project_id=$PROJECT" \
-    cp - $FILE_URL
+set -x # echo on
+
+pg_dump -h $POSTGRES_HOST -U $POSTGRES_USER $DUMP_ARGS $POSTGRES_DATABASE -f $FILE_NAME
+# echo $(ls -lh $FILE_NAME)
+# echo $(ls -lh $CREDENTIAL_PATH)
+# echo $(cat $CREDENTIAL_PATH)
+# echo $(cat /tmp/.boto)
+gsutil cp $FILE_NAME $FILE_URL
 
 echo "Backed up $POSTGRES_DATABASE on $POSTGRES_HOST to $FILE_URL"
